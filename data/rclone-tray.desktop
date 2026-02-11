@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Rclone Mount Tray
+Comment=System tray controller for rclone cloud storage mounts
+Exec=rclone-tray
+Icon=drive-harddisk
+Terminal=false
+Categories=Utility;System;
+StartupNotify=false
+X-GNOME-Autostart-enabled=true

@@ -1,0 +1,7 @@
+pycairo==1.29.0
+pygobject==3.54.5
+pyinstaller==6.18.0
+pyinstaller-hooks-contrib==2026.0
+altgraph==0.17.5
+packaging==26.0
+setuptools==82.0.0

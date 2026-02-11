@@ -1,0 +1,25 @@
+# Reference file — the actual service is generated at runtime by rclone-tray
+# with correct binary paths resolved via `which`. Do not copy this directly.
+
+[Unit]
+Description=Rclone Cloud Storage Mount
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=rclone mount gdrive: %h/GoogleDrive \
+    --vfs-cache-mode full \
+    --vfs-cache-max-size 10G \
+    --vfs-write-back 5s \
+    --dir-cache-time 2m \
+    -v \
+    --stats 30s \
+    --stats-one-line \
+    --log-systemd
+ExecStop=fusermount -uz %h/GoogleDrive
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target
