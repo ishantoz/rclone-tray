@@ -1,4 +1,4 @@
-"""Systemd user-service manager for the rclone mount."""
+"""Linux service backend using systemd --user."""
 
 from __future__ import annotations
 
@@ -8,24 +8,60 @@ import shutil
 import subprocess
 from typing import Optional
 
-from .config import SERVICE_DST, SERVICE_NAME
-from .settings import get_mount_point, load as load_settings
-from .utils import fmt_bytes, fmt_duration
+from ...config import SERVICE_DST, SERVICE_NAME
+from ...settings import get_mount_point, load as load_settings
+from ..base import ServiceBackend
 
 log = logging.getLogger(__name__)
 
 _TIMEOUT = 30
 
 
-class SystemdService:
-    """Manage a single systemd --user service."""
+def _fmt_duration(seconds: int) -> str:
+    d, seconds = divmod(seconds, 86400)
+    h, seconds = divmod(seconds, 3600)
+    m, s = divmod(seconds, 60)
+    parts: list[str] = []
+    if d:
+        parts.append(f"{d}d")
+    if h:
+        parts.append(f"{h}h")
+    if m:
+        parts.append(f"{m}m")
+    if not parts:
+        parts.append(f"{s}s")
+    return " ".join(parts)
+
+
+def _fmt_bytes(n: float) -> str:
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if n < 1024:
+            return f"{n:.1f} {unit}"
+        n /= 1024
+    return f"{n:.1f} PB"
+
+
+def _find_bin(names: list[str], fallback: str) -> str:
+    for name in names:
+        path = shutil.which(name)
+        if path:
+            return path
+    return fallback
+
+
+class LinuxService(ServiceBackend):
+    """Manage an rclone mount via systemd --user."""
 
     @staticmethod
-    def _run(*args: str, timeout: int = _TIMEOUT) -> Optional[subprocess.CompletedProcess]:
+    def _run(
+        *args: str, timeout: int = _TIMEOUT
+    ) -> Optional[subprocess.CompletedProcess[str]]:
         try:
             r = subprocess.run(
                 ["systemctl", "--user", *args],
-                capture_output=True, text=True, timeout=timeout,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
             )
             if r.returncode != 0 and r.stderr.strip():
                 log.warning("systemctl %s: %s", " ".join(args), r.stderr.strip())
@@ -41,17 +77,7 @@ class SystemdService:
             self._run(a, SERVICE_NAME)
 
     @staticmethod
-    def _find_bin(names: list[str], fallback: str) -> str:
-        """Return the absolute path of the first binary found, or fallback."""
-        for name in names:
-            path = shutil.which(name)
-            if path:
-                return path
-        return fallback
-
-    @staticmethod
     def generate_service(settings: dict[str, str] | None = None) -> str:
-        """Render the systemd unit file content from settings."""
         if settings is None:
             settings = load_settings()
         remote = settings.get("remote", "gdrive:")
@@ -62,10 +88,8 @@ class SystemdService:
         dir_cache = settings.get("dir_cache_time", "2m")
         stats = settings.get("stats_interval", "30s")
 
-        rclone_bin = SystemdService._find_bin(["rclone"], "/usr/bin/rclone")
-        fuse_bin = SystemdService._find_bin(
-            ["fusermount3", "fusermount"], "/usr/bin/fusermount"
-        )
+        rclone_bin = _find_bin(["rclone"], "/usr/bin/rclone")
+        fuse_bin = _find_bin(["fusermount3", "fusermount"], "/usr/bin/fusermount")
 
         if mount.startswith("~"):
             mount_escaped = "%h" + mount[1:]
@@ -98,7 +122,6 @@ class SystemdService:
         )
 
     def install(self, settings: dict[str, str] | None = None) -> None:
-        """Generate and install the .service file, then reload systemd."""
         os.makedirs(os.path.dirname(SERVICE_DST), exist_ok=True)
         content = self.generate_service(settings)
         with open(SERVICE_DST, "w") as f:
@@ -107,7 +130,6 @@ class SystemdService:
         log.info("Service installed -> %s", SERVICE_DST)
 
     def uninstall(self) -> None:
-        """Stop, disable, remove the service file, and reload."""
         self._ctl("stop", "disable")
         try:
             os.remove(SERVICE_DST)
@@ -136,13 +158,22 @@ class SystemdService:
         r = self._run("is-active", SERVICE_NAME)
         return r is not None and r.stdout.strip() == "active"
 
+    def is_installed(self) -> bool:
+        return os.path.isfile(SERVICE_DST)
+
     def get_uptime(self) -> Optional[str]:
-        """Return a human-readable uptime string, or None."""
         try:
             r = subprocess.run(
-                ["systemctl", "--user", "show", SERVICE_NAME,
-                 "--property=ActiveEnterTimestampMonotonic"],
-                capture_output=True, text=True, timeout=10,
+                [
+                    "systemctl",
+                    "--user",
+                    "show",
+                    SERVICE_NAME,
+                    "--property=ActiveEnterTimestampMonotonic",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10,
             )
             val = r.stdout.strip().split("=", 1)[-1]
             if val and val != "0":
@@ -151,14 +182,12 @@ class SystemdService:
                     boot_sec = float(f.read().split()[0])
                 now_us = int(boot_sec * 1_000_000)
                 delta_sec = max(0, (now_us - started_us) // 1_000_000)
-                return fmt_duration(delta_sec)
+                return _fmt_duration(delta_sec)
         except Exception:
             pass
         return None
 
-    @staticmethod
-    def get_mount_usage() -> tuple[Optional[str], Optional[str]]:
-        """Return (used, total) as formatted strings, or (None, None)."""
+    def get_mount_usage(self) -> tuple[Optional[str], Optional[str]]:
         try:
             mount = get_mount_point()
             if os.path.ismount(mount):
@@ -166,19 +195,26 @@ class SystemdService:
                 total = st.f_blocks * st.f_frsize
                 free = st.f_bfree * st.f_frsize
                 used = total - free
-                return fmt_bytes(used), fmt_bytes(total)
+                return _fmt_bytes(used), _fmt_bytes(total)
         except OSError:
             pass
         return None, None
 
-    @staticmethod
-    def get_recent_logs(lines: int = 100) -> str:
-        """Return the last N lines from the service journal."""
+    def get_logs(self, lines: int = 100) -> str:
         try:
             r = subprocess.run(
-                ["journalctl", "--user", "-u", SERVICE_NAME,
-                 "-n", str(lines), "--no-pager"],
-                capture_output=True, text=True, timeout=10,
+                [
+                    "journalctl",
+                    "--user",
+                    "-u",
+                    SERVICE_NAME,
+                    "-n",
+                    str(lines),
+                    "--no-pager",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10,
             )
             return r.stdout or "(no logs)"
         except Exception:

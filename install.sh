@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — Build and install rclone-tray
+# install.sh — Build and install rclone-tray (Linux)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -15,14 +15,11 @@ ICON_NAME="rclone-tray.png"
 echo "==> Installing rclone-tray"
 echo ""
 
-echo "[0/3] Checking system dependencies..."
+echo "[0/4] Checking system dependencies..."
 MISSING=()
 
 command -v rclone &>/dev/null || MISSING+=("rclone")
 { command -v fusermount &>/dev/null || command -v fusermount3 &>/dev/null; } || MISSING+=("fuse (fuse2 or fuse3)")
-python3 -c "import gi; gi.require_version('Gtk', '3.0')" &>/dev/null || MISSING+=("gtk3 (pygobject)")
-python3 -c "import gi; gi.require_version('AppIndicator3', '0.1')" &>/dev/null || MISSING+=("libappindicator-gtk3")
-python3 -c "import gi; gi.require_version('Notify', '0.7')" &>/dev/null || MISSING+=("libnotify")
 
 if [ ${#MISSING[@]} -gt 0 ]; then
     echo ""
@@ -33,13 +30,13 @@ if [ ${#MISSING[@]} -gt 0 ]; then
     echo ""
     if command -v pacman &>/dev/null; then
         echo "  Install on Arch / CachyOS:"
-        echo "    sudo pacman -S rclone libappindicator-gtk3 libnotify fuse2"
+        echo "    sudo pacman -S rclone fuse2"
     elif command -v apt &>/dev/null; then
         echo "  Install on Ubuntu / Debian:"
-        echo "    sudo apt install rclone gir1.2-appindicator3-0.1 libnotify-dev fuse"
+        echo "    sudo apt install rclone fuse"
     elif command -v dnf &>/dev/null; then
         echo "  Install on Fedora:"
-        echo "    sudo dnf install rclone libappindicator-gtk3 libnotify fuse"
+        echo "    sudo dnf install rclone fuse"
     else
         echo "  Please install the missing packages using your package manager."
     fi
@@ -51,10 +48,10 @@ fi
 echo "  All dependencies found."
 echo ""
 
-echo "[1/3] Building binary..."
+echo "[1/4] Building binary..."
 bash "$SCRIPT_DIR/build.sh"
 
-echo "[2/3] Installing binary to $BIN_DIR/$BIN_NAME"
+echo "[2/4] Installing binary to $BIN_DIR/$BIN_NAME"
 mkdir -p "$BIN_DIR"
 cp "$SCRIPT_DIR/dist/$BIN_NAME" "$BIN_DIR/$BIN_NAME"
 chmod +x "$BIN_DIR/$BIN_NAME"

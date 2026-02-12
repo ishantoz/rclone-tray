@@ -1,12 +1,14 @@
 # rclone-tray
 
-Mount your cloud storage as a local folder on Linux. Runs in the system tray.
+Mount your cloud storage as a local folder. Runs in the system tray.
 
-Works with Google Drive, OneDrive, Dropbox, S3, SFTP, and [40+ other services](https://rclone.org/overview/) through [rclone](https://rclone.org/).
+Works on **Linux**, **macOS**, and **Windows**.
+
+Supports Google Drive, OneDrive, Dropbox, S3, SFTP, and [40+ other services](https://rclone.org/overview/) through [rclone](https://rclone.org/).
 
 ## Why This Exists
 
-rclone is powerful, but there's no simple way to run it as a background mount and control it from the desktop. You either babysit a terminal, write your own systemd service, or dig through config files every time something needs to change.
+rclone is powerful, but there's no simple way to run it as a background mount and control it from the desktop. You either babysit a terminal, write your own systemd/launchd config, or dig through config files every time something needs to change.
 
 I built rclone-tray because I wanted a minimal, useful tray app that handles all of that — install, configure, mount, and forget. Right-click when you need to change something. No terminal required after setup.
 
@@ -26,10 +28,11 @@ Your cloud files appear in a local folder (like `~/GoogleDrive`) and stay in syn
 
 - A tray icon that shows whether your cloud storage is mounted
 - Right-click menu to control everything
-- Starts automatically when you log in
+- Starts automatically when you log in (configurable)
 - A settings dialog to change the remote, mount folder, and cache options
 - Desktop notifications when the mount starts or stops
-- Single instance only — clicking the icon again won't open duplicates
+- Single instance only — running it again won't open duplicates
+- Cross-platform: same interface on Linux, macOS, and Windows
 
 ---
 
@@ -39,27 +42,38 @@ You need two things ready before running the installer.
 
 ### 1. Install system packages
 
-The installer will check for these and tell you what's missing, but it's easier to install them upfront.
-
-**Arch / CachyOS / Manjaro:**
+#### Linux (Arch / CachyOS / Manjaro)
 
 ```bash
-sudo pacman -S python rclone libappindicator-gtk3 libnotify fuse2
+sudo pacman -S python rclone fuse2
 ```
 
-**Ubuntu / Debian:**
+#### Linux (Ubuntu / Debian)
 
 ```bash
-sudo apt install python3 rclone gir1.2-appindicator3-0.1 libnotify-dev fuse
+sudo apt install python3 rclone fuse
 ```
 
-**Fedora:**
+#### Linux (Fedora)
 
 ```bash
-sudo dnf install python3 rclone libappindicator-gtk3 libnotify fuse
+sudo dnf install python3 rclone fuse
 ```
 
-**Other distros:** install `rclone`, `python 3.11+`, `gtk3`, `libappindicator-gtk3`, `libnotify`, and `fuse` using your package manager.
+#### macOS
+
+```bash
+brew install rclone macfuse python
+```
+
+> After installing macFUSE, allow the kernel extension in System Preferences > Security & Privacy.
+
+#### Windows
+
+1. Install [Python 3.11+](https://www.python.org/downloads/)
+2. Install [rclone](https://rclone.org/downloads/)
+3. Install [WinFsp](https://winfsp.dev/) (FUSE layer for Windows)
+4. Make sure `rclone` is in your PATH
 
 ### 2. Set up your cloud storage in rclone
 
@@ -104,19 +118,45 @@ If you see your files listed, you're ready.
 
 ## Install
 
+### Linux
+
 ```bash
 git clone https://github.com/ishantoz/rclone-tray.git
 cd rclone-tray
 ./install.sh
 ```
 
-That's it. The installer:
+The installer checks dependencies, builds a standalone binary, installs it to `~/.local/bin/`, adds it to your app menu and autostart, and launches the tray.
 
-1. Checks all dependencies are present
-2. Builds a standalone binary (no Python needed after this)
-3. Installs it to `~/.local/bin/rclone-tray`
-4. Adds it to your app menu and autostart
-5. Launches the tray app
+### macOS
+
+```bash
+git clone https://github.com/ishantoz/rclone-tray.git
+cd rclone-tray
+./install-macos.sh
+```
+
+The installer checks for rclone and Python, builds a binary, installs it to `/usr/local/bin/`, and launches the tray. Autostart can be enabled from the tray menu.
+
+### Windows
+
+```bash
+git clone https://github.com/ishantoz/rclone-tray.git
+cd rclone-tray
+pip install .
+rclone-tray
+```
+
+Or run from source:
+
+```bash
+pip install .
+python -m rclone_tray
+```
+
+To enable autostart, use the "Enable Autostart" option in the tray menu (sets a Registry Run key).
+
+---
 
 On first launch, a **Settings** dialog opens where you pick your remote and mount folder.
 
@@ -124,11 +164,35 @@ From the next login onward, it starts automatically and mounts your storage.
 
 ## Uninstall
 
+### Linux
+
 ```bash
 ./uninstall.sh
 ```
 
-This removes the binary, the systemd service, the desktop entries, and the settings. Your mount folder and rclone configuration are **not** deleted — your files stay safe.
+Removes the binary, systemd service, desktop entries, and settings. Your mount folder and rclone configuration are **not** deleted — your files stay safe.
+
+### macOS
+
+Remove the binary and LaunchAgents:
+
+```bash
+rm -f /usr/local/bin/rclone-tray
+rm -f ~/Library/LaunchAgents/com.rclone-tray.mount.plist
+rm -f ~/Library/LaunchAgents/com.rclone-tray.plist
+rm -rf ~/Library/Application\ Support/rclone-tray
+rm -rf ~/Library/Caches/rclone-tray
+```
+
+### Windows
+
+```bash
+pip uninstall rclone-tray
+```
+
+Then remove the autostart Registry entry (if enabled) from the tray menu first, or manually delete `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\RcloneTray`.
+
+Settings are stored in `%APPDATA%\rclone-tray\` — delete that folder to clean up fully.
 
 ---
 
@@ -143,11 +207,11 @@ Right-click the tray icon to see these options:
 | **Stop Mount** | Stops the mount |
 | **Restart Mount** | Restarts the mount |
 | **Open Mount Folder** | Opens your mount folder in the file manager |
-| **View Logs** | Opens live service logs in a terminal window |
+| **View Logs** | Opens live service logs (terminal on Linux, dialog on macOS/Windows) |
 | **Reconfigure Rclone** | Stops the mount, opens `rclone config` in a terminal, then restarts |
 | **Settings** | Change remote, mount folder, cache size, and other options |
 | **Enable/Disable Autostart** | Toggle whether it starts on login |
-| **Uninstall Service** | Removes the systemd service and autostart, then exits |
+| **Uninstall Service** | Removes the service and autostart, then exits |
 | **Quit** | Stops the mount and exits |
 
 ## Settings You Can Change
@@ -193,21 +257,49 @@ python -m rclone_tray
 
 ```
 rclone-tray/
-├── src/rclone_tray/        # Python source
-│   ├── app.py              # Main app class, lifecycle, callbacks
-│   ├── config.py           # Paths and constants
-│   ├── settings.py         # Persistent JSON settings (~/.config/rclone-tray/)
-│   ├── service.py          # Systemd service manager + unit file generator
-│   ├── ui.py               # GTK tray menu, settings dialog, log viewer
-│   └── utils.py            # Formatting, terminal detection, file locking
+├── src/rclone_tray/
+│   ├── app.py                 # Main orchestrator (platform-agnostic)
+│   ├── config.py              # Platform-aware paths and constants
+│   ├── settings.py            # Persistent JSON settings
+│   ├── tray.py                # pystray-based system tray icon
+│   └── platform/
+│       ├── __init__.py        # Platform detection and backend factory
+│       ├── base.py            # Abstract interfaces
+│       ├── linux/
+│       │   ├── service.py     # systemd service manager
+│       │   ├── dialogs.py     # GTK settings & log dialogs
+│       │   ├── autostart.py   # .desktop file autostart
+│       │   └── lock.py        # fcntl file lock
+│       ├── macos/
+│       │   ├── service.py     # launchd service manager
+│       │   ├── dialogs.py     # tkinter dialogs
+│       │   ├── autostart.py   # LaunchAgent autostart
+│       │   └── lock.py        # fcntl file lock
+│       └── windows/
+│           ├── service.py     # subprocess-based service
+│           ├── dialogs.py     # tkinter dialogs
+│           ├── autostart.py   # Registry Run key
+│           └── lock.py        # msvcrt file lock
 ├── data/
-│   └── icons/              # Tray icons (active / stopped)
-├── entry.py                # PyInstaller entry point
-├── install.sh              # Build + install + autostart
-├── uninstall.sh            # Full cleanup
-├── build.sh                # Build standalone binary
-└── pyproject.toml          # Project metadata
+│   └── icons/                 # Tray icons (active / stopped)
+├── entry.py                   # PyInstaller entry point
+├── install.sh                 # Linux installer
+├── install-macos.sh           # macOS installer
+├── uninstall.sh               # Linux uninstaller
+├── build.sh                   # Build standalone binary
+└── pyproject.toml             # Project metadata
 ```
+
+### Platform Architecture
+
+The app uses a backend abstraction layer. At startup, it detects the OS and loads the right implementations for:
+
+- **ServiceBackend** — manages the rclone mount process (systemd / launchd / subprocess)
+- **DialogBackend** — settings and log dialogs (GTK on Linux, tkinter elsewhere)
+- **AutostartBackend** — login autostart (.desktop / LaunchAgent / Registry)
+- **InstanceLock** — single-instance guard (fcntl / msvcrt)
+
+The core `app.py` and `tray.py` are completely platform-agnostic.
 
 ## License
 

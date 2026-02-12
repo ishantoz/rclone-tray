@@ -18,6 +18,44 @@ fi
 
 PY="$SCRIPT_DIR/.venv/bin/python"
 
+HIDDEN_IMPORTS=(
+    --hidden-import=rclone_tray
+    --hidden-import=rclone_tray.app
+    --hidden-import=rclone_tray.config
+    --hidden-import=rclone_tray.settings
+    --hidden-import=rclone_tray.tray
+    --hidden-import=rclone_tray.platform
+    --hidden-import=rclone_tray.platform.base
+    --hidden-import=pystray
+    --hidden-import=PIL
+)
+
+case "$(uname -s)" in
+    Linux*)
+        HIDDEN_IMPORTS+=(
+            --hidden-import=rclone_tray.platform.linux
+            --hidden-import=rclone_tray.platform.linux.service
+            --hidden-import=rclone_tray.platform.linux.dialogs
+            --hidden-import=rclone_tray.platform.linux.autostart
+            --hidden-import=rclone_tray.platform.linux.lock
+            --hidden-import=gi
+            --hidden-import=gi.repository.Gtk
+            --hidden-import=gi.repository.GdkPixbuf
+        )
+        ;;
+    Darwin*)
+        HIDDEN_IMPORTS+=(
+            --hidden-import=rclone_tray.platform.macos
+            --hidden-import=rclone_tray.platform.macos.service
+            --hidden-import=rclone_tray.platform.macos.dialogs
+            --hidden-import=rclone_tray.platform.macos.autostart
+            --hidden-import=rclone_tray.platform.macos.lock
+            --hidden-import=tkinter
+            --hidden-import=plistlib
+        )
+        ;;
+esac
+
 echo "[2/2] Building binary..."
 PYTHONPATH="$SCRIPT_DIR/src" $PY -m PyInstaller \
     --onefile \
@@ -26,17 +64,7 @@ PYTHONPATH="$SCRIPT_DIR/src" $PY -m PyInstaller \
     --clean \
     --paths "$SCRIPT_DIR/src" \
     --add-data "$SCRIPT_DIR/data:data" \
-    --hidden-import=rclone_tray \
-    --hidden-import=rclone_tray.app \
-    --hidden-import=rclone_tray.config \
-    --hidden-import=rclone_tray.service \
-    --hidden-import=rclone_tray.ui \
-    --hidden-import=rclone_tray.utils \
-    --hidden-import=gi \
-    --hidden-import=gi.repository.Gtk \
-    --hidden-import=gi.repository.AppIndicator3 \
-    --hidden-import=gi.repository.GLib \
-    --hidden-import=gi.repository.Notify \
+    "${HIDDEN_IMPORTS[@]}" \
     "$SCRIPT_DIR/entry.py" \
     --distpath "$SCRIPT_DIR/dist" \
     --workpath "$SCRIPT_DIR/build" \

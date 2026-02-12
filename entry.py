@@ -2,8 +2,10 @@
 
 import logging
 import os
+import sys
 
-os.environ["GTK_MODULES"] = ""
+if sys.platform.startswith("linux"):
+    os.environ["GTK_MODULES"] = ""
 
 logging.basicConfig(
     level=logging.INFO,

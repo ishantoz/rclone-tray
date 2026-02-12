@@ -7,9 +7,11 @@ import logging
 import os
 from typing import Any
 
+from .config import CONFIG_DIR
+
 log = logging.getLogger(__name__)
 
-SETTINGS_DIR = os.path.expanduser("~/.config/rclone-tray")
+SETTINGS_DIR = CONFIG_DIR
 SETTINGS_FILE = os.path.join(SETTINGS_DIR, "settings.json")
 
 DEFAULTS: dict[str, str] = {

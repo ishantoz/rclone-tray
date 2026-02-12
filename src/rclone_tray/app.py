@@ -1,4 +1,4 @@
-"""Main application class — glues service management, UI, and lifecycle together."""
+"""Main application class — platform-agnostic orchestrator."""
 
 from __future__ import annotations
 
@@ -8,48 +8,44 @@ import shutil
 import signal
 import subprocess
 import threading
-
-import gi
-
-gi.require_version("Gtk", "3.0")
-from gi.repository import GLib, Gtk  # type: ignore[attr-defined]  # noqa: E402
-
-try:
-    gi.require_version("Notify", "0.7")
-    from gi.repository import Notify  # type: ignore[attr-defined]
-    HAS_NOTIFY = True
-except (ValueError, ImportError):
-    HAS_NOTIFY = False
+import time
 
 from .config import (
-    APP_NAME, ICON_RUNNING, ICON_STOPPED,
-    LOCK_FILE, POLL_INTERVAL_SEC, SERVICE_DST,
+    APP_NAME, ICON_RUNNING, ICON_STOPPED, LOCK_FILE,
+    POLL_INTERVAL_SEC, PLATFORM, SERVICE_NAME,
 )
-from .settings import exists as settings_exist, get_mount_point, save as save_settings
-from .service import SystemdService
-from .ui import (
-    TrayMenu, create_indicator, open_live_logs, open_mount_folder,
-    show_settings_dialog, _find_term_cmd,
+from .settings import (
+    exists as settings_exist,
+    get_mount_point,
+    save as save_settings,
 )
-from .utils import InstanceLock, is_autostart_enabled, enable_autostart, disable_autostart
+from .platform import (
+    get_autostart_backend,
+    get_dialog_backend,
+    get_instance_lock,
+    get_service_backend,
+)
+from .tray import TrayIcon
 
 log = logging.getLogger(__name__)
 
 
 class RcloneTray:
-    """System-tray application that manages an rclone systemd user service."""
+    """System-tray application that manages an rclone mount."""
 
     def __init__(self) -> None:
-        self._lock = InstanceLock(LOCK_FILE)
-        self._svc = SystemdService()
+        self._lock = get_instance_lock(LOCK_FILE)
+        self._svc = get_service_backend()
+        self._dlg = get_dialog_backend()
+        self._autostart = get_autostart_backend()
         self._prev_running: bool | None = None
+        self._stop_event = threading.Event()
 
         self._lock.acquire()
-        self._init_notifications()
 
         if not settings_exist():
             log.info("First run — opening settings dialog")
-            initial = show_settings_dialog()
+            initial = self._dlg.show_settings()
             if initial is None:
                 log.info("Setup cancelled, exiting.")
                 self._lock.release()
@@ -58,12 +54,11 @@ class RcloneTray:
 
         os.makedirs(get_mount_point(), exist_ok=True)
 
-        if not os.path.isfile(SERVICE_DST):
+        if not self._svc.is_installed():
             self._svc.install()
         self._svc.enable_and_start()
 
-        self._indicator = create_indicator()
-        self._menu = TrayMenu(
+        self._tray = TrayIcon(
             on_start=self._on_start,
             on_stop=self._on_stop,
             on_restart=self._on_restart,
@@ -75,44 +70,28 @@ class RcloneTray:
             on_quit=self._on_quit,
             on_uninstall=self._on_uninstall,
         )
-        self._indicator.set_menu(self._menu.gtk_menu)
 
-        GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, self._quit)
-        GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, self._quit)
+        signal.signal(signal.SIGINT, self._signal_quit)
+        signal.signal(signal.SIGTERM, self._signal_quit)
 
-        self._update_autostart_label()
-        self._refresh()
-        GLib.timeout_add_seconds(POLL_INTERVAL_SEC, self._refresh)
+        self._poll_thread = threading.Thread(target=self._poll_loop, daemon=True)
+        self._poll_thread.start()
 
-    @staticmethod
-    def _init_notifications() -> None:
-        if HAS_NOTIFY:
-            Notify.init(APP_NAME)  # type: ignore[possibly-unbound]
+    def _signal_quit(self, _sig: int, _frame: object) -> None:
+        self._quit()
 
-    @staticmethod
-    def _notify(title: str, body: str, icon: str) -> None:
-        if not HAS_NOTIFY:
-            return
-        try:
-            n = Notify.Notification.new(title, body, icon)  # type: ignore[possibly-unbound]
-            n.set_urgency(Notify.Urgency.NORMAL)  # type: ignore[possibly-unbound]
-            n.show()
-        except Exception as e:
-            log.debug("Notification failed: %s", e)
+    def _poll_loop(self) -> None:
+        """Periodically poll service state and update the tray."""
+        while not self._stop_event.is_set():
+            self._refresh()
+            self._stop_event.wait(POLL_INTERVAL_SEC)
 
-    def _refresh(self) -> bool:
-        """Poll service state and update the entire UI."""
+    def _refresh(self) -> None:
+        """Poll service state and update the tray UI."""
         running = self._svc.is_running()
-        m = self._menu
 
-        self._indicator.set_icon_full(
-            ICON_RUNNING if running else ICON_STOPPED,
-            "Running" if running else "Stopped",
-        )
-
-        m.status_item.set_label(
-            "Mounted  -  Running" if running else "Unmounted  -  Stopped"
-        )
+        status_text = "Mounted  -  Running" if running else "Unmounted  -  Stopped"
+        info_text = ""
 
         if running:
             parts: list[str] = []
@@ -123,59 +102,69 @@ class RcloneTray:
             if used and total:
                 parts.append(f"{used} / {total}")
             if parts:
-                m.info_item.set_label("  ".join(parts))
-                m.info_item.show()
-            else:
-                m.info_item.hide()
-        else:
-            m.info_item.hide()
+                info_text = "  ".join(parts)
 
-        m.start_item.set_sensitive(not running)
-        m.stop_item.set_sensitive(running)
-        m.restart_item.set_sensitive(running)
+        autostart_label = (
+            "Disable Autostart"
+            if self._autostart.is_enabled()
+            else "Enable Autostart"
+        )
+
+        self._tray.update(
+            running=running,
+            status_text=status_text,
+            info_text=info_text,
+            start_enabled=not running,
+            stop_enabled=running,
+            restart_enabled=running,
+            autostart_label=autostart_label,
+        )
 
         if self._prev_running is not None and self._prev_running != running:
             if running:
-                self._notify("Rclone Mount", "Remote mounted.", ICON_RUNNING)
+                self._tray.notify("Rclone Mount", "Remote mounted.")
             else:
-                self._notify("Rclone Mount", "Remote unmounted.", ICON_STOPPED)
+                self._tray.notify("Rclone Mount", "Remote unmounted.")
             log.info("State changed -> %s", "running" if running else "stopped")
         self._prev_running = running
 
-        return True
-
-    def _run_async(self, *actions: str) -> None:
-        """Run service actions off the GTK main thread, then refresh UI."""
+    def _run_async(self, fn: callable, *args: object) -> None:
+        """Run a function in a background thread, then refresh."""
         def _worker() -> None:
-            for a in actions:
-                getattr(self._svc, a)()
-            GLib.idle_add(self._refresh)
+            fn(*args)
+            self._refresh()
         threading.Thread(target=_worker, daemon=True).start()
 
-    def _on_start(self, _: object) -> None:
+    def _on_start(self) -> None:
         log.info("Starting mount...")
-        self._menu.start_item.set_sensitive(False)
-        self._run_async("start")
+        self._tray.set_start_enabled(False)
+        self._run_async(self._svc.start)
 
-    def _on_stop(self, _: object) -> None:
+    def _on_stop(self) -> None:
         log.info("Stopping mount...")
-        self._menu.stop_item.set_sensitive(False)
-        self._run_async("stop")
+        self._tray.set_stop_enabled(False)
+        self._run_async(self._svc.stop)
 
-    def _on_restart(self, _: object) -> None:
+    def _on_restart(self) -> None:
         log.info("Restarting mount...")
-        self._menu.restart_item.set_sensitive(False)
-        self._run_async("restart")
+        self._tray.set_restart_enabled(False)
+        self._run_async(self._svc.restart)
 
-    def _on_open_folder(self, _: object) -> None:
-        open_mount_folder()
+    def _on_open_folder(self) -> None:
+        self._dlg.open_folder(get_mount_point())
 
-    def _on_view_logs(self, _: object) -> None:
-        open_live_logs()
+    def _on_view_logs(self) -> None:
+        if PLATFORM == "linux":
+            cmd = [
+                "journalctl", "--user", "-u", SERVICE_NAME, "-f", "--no-pager",
+            ]
+            if self._dlg.open_terminal_with(cmd):
+                return
+        text = self._svc.get_logs(100)
+        self._dlg.show_logs(text)
 
-    def _on_settings(self, _: object) -> None:
-        """Open settings dialog; on save, apply new settings and restart service."""
-        new_settings = show_settings_dialog()
+    def _on_settings(self) -> None:
+        new_settings = self._dlg.show_settings()
         if new_settings is None:
             return
         log.info("Applying new settings...")
@@ -183,29 +172,26 @@ class RcloneTray:
 
         def _worker() -> None:
             self._svc.stop()
-            os.makedirs(os.path.expanduser(new_settings["mount_point"]), exist_ok=True)
+            os.makedirs(
+                os.path.expanduser(new_settings["mount_point"]), exist_ok=True
+            )
             self._svc.install(new_settings)
             self._svc.enable_and_start()
             log.info("Settings applied, service restarted.")
-            GLib.idle_add(self._refresh)
+            self._refresh()
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    def _on_toggle_autostart(self, _: object) -> None:
-        if is_autostart_enabled():
-            disable_autostart()
-            self._notify("Rclone Mount", "Autostart disabled.", ICON_STOPPED)
+    def _on_toggle_autostart(self) -> None:
+        if self._autostart.is_enabled():
+            self._autostart.disable()
+            self._tray.notify("Rclone Mount", "Autostart disabled.")
         else:
-            enable_autostart()
-            self._notify("Rclone Mount", "Autostart enabled.", ICON_RUNNING)
-        self._update_autostart_label()
+            self._autostart.enable()
+            self._tray.notify("Rclone Mount", "Autostart enabled.")
+        self._refresh()
 
-    def _update_autostart_label(self) -> None:
-        label = "Disable Autostart" if is_autostart_enabled() else "Enable Autostart"
-        self._menu.autostart_item.set_label(label)
-
-    def _on_reconfigure(self, _: object) -> None:
-        """Tear down mount, run rclone config, then re-bootstrap."""
+    def _on_reconfigure(self) -> None:
         log.info("Reconfiguring rclone...")
 
         def _worker() -> None:
@@ -213,12 +199,12 @@ class RcloneTray:
             mount = get_mount_point()
             shutil.rmtree(mount, ignore_errors=True)
             log.info("Removed mount folder %s", mount)
-            GLib.idle_add(self._refresh)
+            self._refresh()
 
-            term_cmd = _find_term_cmd()
-            if term_cmd:
+            cmd = ["rclone", "config"]
+            if not self._dlg.open_terminal_with(cmd):
                 try:
-                    subprocess.Popen(term_cmd + ["rclone", "config"]).wait()
+                    subprocess.run(cmd, check=False)
                 except Exception as e:
                     log.error("rclone config failed: %s", e)
 
@@ -226,32 +212,31 @@ class RcloneTray:
             self._svc.install()
             self._svc.enable_and_start()
             log.info("Reconfiguration complete, service restarted.")
-            GLib.idle_add(self._refresh)
+            self._refresh()
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    def _on_quit(self, _: object) -> None:
+    def _on_quit(self) -> None:
         self._quit()
 
-    def _on_uninstall(self, _: object) -> None:
+    def _on_uninstall(self) -> None:
         log.info("Uninstalling service...")
         self._svc.uninstall()
-        disable_autostart()
-        self._notify("Rclone Mount", "Service uninstalled.", ICON_STOPPED)
+        self._autostart.disable()
+        self._tray.notify("Rclone Mount", "Service uninstalled.")
         log.info("Removed service, autostart disabled.")
         self._shutdown()
 
-    def _quit(self) -> bool:
+    def _quit(self) -> None:
         log.info("Quitting...")
         self._svc.disable_and_stop()
         self._shutdown()
-        return False
 
     def _shutdown(self) -> None:
-        if HAS_NOTIFY:
-            Notify.uninit()  # type: ignore[possibly-unbound]
+        self._stop_event.set()
         self._lock.release()
-        Gtk.main_quit()
+        self._tray.stop()
 
     def run(self) -> None:
-        Gtk.main()
+        """Start the application — blocks until quit."""
+        self._tray.run()

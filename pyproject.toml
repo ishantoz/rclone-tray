@@ -1,16 +1,20 @@
 [project]
 name = "rclone-tray"
-version = "1.0.0"
-description = "System tray controller for rclone cloud storage mounts"
+version = "2.0.0"
+description = "Cross-platform system tray controller for rclone cloud storage mounts"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
 authors = [{ name = "ishantoz" }]
-keywords = ["rclone", "tray", "systemd", "cloud-storage", "mount"]
+keywords = ["rclone", "tray", "cloud-storage", "mount", "cross-platform"]
 
 dependencies = [
-    "pygobject>=3.50.0",
+    "pystray>=0.19",
+    "Pillow>=10.0",
 ]
+
+[project.optional-dependencies]
+linux = ["PyGObject>=3.50.0"]
 
 [project.scripts]
 rclone-tray = "rclone_tray.__main__:main"

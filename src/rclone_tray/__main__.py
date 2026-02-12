@@ -6,7 +6,10 @@ import logging
 import os
 import sys
 
-os.environ["GTK_MODULES"] = ""
+from .config import PLATFORM
+
+if PLATFORM == "linux":
+    os.environ["GTK_MODULES"] = ""
 
 from .app import RcloneTray
 
