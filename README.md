@@ -6,11 +6,25 @@ Works on **Linux**, **macOS**, and **Windows**.
 
 Supports Google Drive, OneDrive, Dropbox, S3, SFTP, and [40+ other services](https://rclone.org/overview/) through [rclone](https://rclone.org/).
 
+## The Problem
+
+Using Google Drive, OneDrive, or any cloud storage on Linux is painfully hard. On Windows and macOS you get official sync clients that just work. On Linux — especially Arch-based distros like CachyOS, Manjaro, and EndeavourOS — you get nothing. There's no official Google Drive client for Linux. OneDrive has no native app. Dropbox barely maintains theirs.
+
+The few third-party options are either paid, half-broken, or abandoned. If you've ever tried to sync your files on an Arch install, you know the frustration: searching the AUR for sketchy packages, wrestling with OAuth tokens, or settling for a janky web-only workflow.
+
+**A common real-world example:** many people use [Obsidian](https://obsidian.md/) and want to sync their vault across devices. Obsidian Sync costs money, and the free workaround is to put your vault folder on Google Drive or OneDrive. That works great on Windows and macOS — but on Linux, there's no simple way to keep that cloud folder mounted and in sync. You end up with stale notes, merge conflicts, or just giving up and paying for Sync.
+
+This is exactly the kind of problem [rclone](https://rclone.org/) solves. rclone supports [40+ cloud storage providers](https://rclone.org/overview/) — Google Drive, OneDrive, Dropbox, S3, SFTP, and many more — all through a single command-line tool. It can mount any of them as a regular folder on your computer. It's free, open-source, and rock-solid. If your cloud provider exists, rclone almost certainly supports it.
+
+The only catch: rclone is a CLI tool. There's no GUI, no tray icon, no "set it and forget it" experience. You have to run commands in a terminal, write your own systemd unit files, and manage everything by hand. That's where rclone-tray comes in.
+
 ## Why This Exists
 
-rclone is powerful, but there's no simple way to run it as a background mount and control it from the desktop. You either babysit a terminal, write your own systemd/launchd config, or dig through config files every time something needs to change.
+rclone-tray puts a friendly tray icon on top of rclone so you can mount, unmount, and configure your cloud storage without touching a terminal. It handles the systemd service (or launchd on macOS, or a background process on Windows), autostart on login, and gives you a settings dialog for everything.
 
-I built rclone-tray because I wanted a minimal, useful tray app that handles all of that — install, configure, mount, and forget. Right-click when you need to change something. No terminal required after setup.
+I built it because I wanted a minimal, useful tray app that handles all of that — install, configure, mount, and forget. Right-click when you need to change something. No terminal required after setup.
+
+Whether you want to sync your Obsidian vault, keep your documents backed up, or just have Google Drive available as a folder on your Arch Linux desktop — rclone-tray makes it work the same way it does on every other OS.
 
 It's written in Python so anyone can read, modify, or extend it to fit their own workflow.
 
