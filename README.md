@@ -114,6 +114,19 @@ If you see your files listed, you're ready.
 
 > This works the same way for any provider. Just pick a different storage type in step 3. See [rclone.org/overview](https://rclone.org/overview/) for the full list.
 
+**You can add as many remotes as you want.** Just run `rclone config` again and choose `n` to create a new one. Each remote is a separate named connection — they don't overwrite each other. For example, you could have:
+
+- `gdrive:` — Google Drive (personal)
+- `gdrive-work:` — Google Drive (work account)
+- `onedrive:` — OneDrive
+- `dropbox:` — Dropbox
+
+All of them will show up in the rclone-tray Settings dropdown. To see your configured remotes at any time:
+
+```bash
+rclone listremotes
+```
+
 ---
 
 ## Install
