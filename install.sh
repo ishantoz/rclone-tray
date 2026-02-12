@@ -15,7 +15,7 @@ ICON_NAME="rclone-tray.png"
 echo "==> Installing rclone-tray"
 echo ""
 
-echo "[0/3] Checking system dependencies..."
+echo "[1/5] Checking system dependencies..."
 MISSING=()
 
 command -v rclone &>/dev/null || MISSING+=("rclone")
@@ -51,20 +51,20 @@ fi
 echo "  All dependencies found."
 echo ""
 
-echo "[1/3] Building binary..."
+echo "[2/5] Building binary..."
 bash "$SCRIPT_DIR/build.sh"
 
-echo "[2/3] Installing binary to $BIN_DIR/$BIN_NAME"
+echo "[3/5] Installing binary to $BIN_DIR/$BIN_NAME"
 mkdir -p "$BIN_DIR"
 cp "$SCRIPT_DIR/dist/$BIN_NAME" "$BIN_DIR/$BIN_NAME"
 chmod +x "$BIN_DIR/$BIN_NAME"
 rm -rf "$SCRIPT_DIR/dist"
 
-echo "[3/4] Installing icon"
+echo "[4/5] Installing icon"
 mkdir -p "$ICON_DIR"
 cp "$SCRIPT_DIR/data/icons/rclone-active.png" "$ICON_DIR/$ICON_NAME"
 
-echo "[4/4] Installing desktop entries"
+echo "[5/5] Installing desktop entries"
 mkdir -p "$AUTOSTART_DIR"
 mkdir -p "$APPS_DIR"
 

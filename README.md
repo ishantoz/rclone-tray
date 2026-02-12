@@ -131,13 +131,21 @@ rclone listremotes
 
 ## Install
 
+One command, no git required:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ishantoz/rclone-tray/main/index.sh | bash
+```
+
+Or if you prefer to clone the repo first:
+
 ```bash
 git clone https://github.com/ishantoz/rclone-tray.git
 cd rclone-tray
 ./install.sh
 ```
 
-That's it. The installer:
+Either way, the installer:
 
 1. Checks all dependencies are present
 2. Builds a standalone binary (no Python needed after this)
