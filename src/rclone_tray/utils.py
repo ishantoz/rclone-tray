@@ -118,11 +118,18 @@ class InstanceLock:
             sys.exit(1)
 
     def release(self) -> None:
-        if self._fd:
-            try:
-                fcntl.flock(self._fd, fcntl.LOCK_UN)
-                self._fd.close()
-                os.remove(self._path)
-            except OSError:
-                pass
-            self._fd = None
+        fd, self._fd = self._fd, None
+        if fd is None:
+            return
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        except OSError:
+            pass
+        try:
+            fd.close()
+        except OSError:
+            pass
+        try:
+            os.remove(self._path)
+        except OSError:
+            pass

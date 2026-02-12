@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import os
 import subprocess
 from typing import Callable, Optional
@@ -34,17 +35,29 @@ _VFS_CACHE_MODES = ["off", "minimal", "writes", "full"]
 
 
 def _get_rclone_remotes() -> list[str]:
-    """Return a list of configured rclone remotes (e.g. ['gdrive:', 'onedrive:'])."""
-    try:
+    """Return a list of configured rclone remotes (e.g. ['gdrive:', 'onedrive:']).
+
+    Runs in a worker thread so the GTK main loop stays responsive.
+    """
+    def _fetch() -> list[str]:
         r = subprocess.run(
             ["rclone", "listremotes"],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True, text=True, timeout=5,
         )
         if r.returncode == 0:
             return [line.strip() for line in r.stdout.splitlines() if line.strip()]
+        return []
+
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            # Process GTK events while waiting so the UI doesn't freeze
+            future = pool.submit(_fetch)
+            while not future.done():
+                while Gtk.events_pending():
+                    Gtk.main_iteration_do(False)
+            return future.result()
     except Exception:
-        pass
-    return []
+        return []
 
 
 def create_indicator() -> AppIndicator3.Indicator:
@@ -143,7 +156,17 @@ def open_mount_folder() -> None:
 
 
 def _show_logs_dialog() -> None:
-    text = SystemdService.get_recent_logs(100)
+    # Fetch logs off-thread so the UI stays responsive
+    text = "(loading logs...)"
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(SystemdService.get_recent_logs, 100)
+            while not future.done():
+                while Gtk.events_pending():
+                    Gtk.main_iteration_do(False)
+            text = future.result()
+    except Exception:
+        text = "(failed to read logs)"
 
     dialog = Gtk.Dialog(title="Rclone Mount - Logs")
     icon = _get_app_icon()

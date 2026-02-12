@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import logging
 import os
 import shutil
@@ -15,6 +16,13 @@ from .utils import fmt_bytes, fmt_duration
 log = logging.getLogger(__name__)
 
 _TIMEOUT = 30
+_POLL_TIMEOUT = 5
+_statvfs_pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+
+
+def shutdown_pool() -> None:
+    """Shut down the module-level thread pool (call on app exit)."""
+    _statvfs_pool.shutdown(wait=False)
 
 
 class SystemdService:
@@ -133,7 +141,7 @@ class SystemdService:
         self._ctl("stop", "disable")
 
     def is_running(self) -> bool:
-        r = self._run("is-active", SERVICE_NAME)
+        r = self._run("is-active", SERVICE_NAME, timeout=_POLL_TIMEOUT)
         return r is not None and r.stdout.strip() == "active"
 
     def get_uptime(self) -> Optional[str]:
@@ -142,7 +150,7 @@ class SystemdService:
             r = subprocess.run(
                 ["systemctl", "--user", "show", SERVICE_NAME,
                  "--property=ActiveEnterTimestampMonotonic"],
-                capture_output=True, text=True, timeout=10,
+                capture_output=True, text=True, timeout=_POLL_TIMEOUT,
             )
             val = r.stdout.strip().split("=", 1)[-1]
             if val and val != "0":
@@ -158,8 +166,11 @@ class SystemdService:
 
     @staticmethod
     def get_mount_usage() -> tuple[Optional[str], Optional[str]]:
-        """Return (used, total) as formatted strings, or (None, None)."""
-        try:
+        """Return (used, total) as formatted strings, or (None, None).
+
+        Uses a thread with a timeout so a hung FUSE mount won't block.
+        """
+        def _statvfs() -> tuple[Optional[str], Optional[str]]:
             mount = get_mount_point()
             if os.path.ismount(mount):
                 st = os.statvfs(mount)
@@ -167,9 +178,13 @@ class SystemdService:
                 free = st.f_bfree * st.f_frsize
                 used = total - free
                 return fmt_bytes(used), fmt_bytes(total)
-        except OSError:
-            pass
-        return None, None
+            return None, None
+
+        try:
+            future = _statvfs_pool.submit(_statvfs)
+            return future.result(timeout=3)
+        except (concurrent.futures.TimeoutError, OSError, Exception):
+            return None, None
 
     @staticmethod
     def get_recent_logs(lines: int = 100) -> str:
